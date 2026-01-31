@@ -267,9 +267,21 @@ app.all('*', async (c) => {
     console.log('[WS] Proxying WebSocket connection to Moltbot');
     console.log('[WS] URL:', request.url);
     console.log('[WS] Search params:', url.search);
-    
+
+    // Inject the gateway token into the WebSocket URL if configured
+    // This allows the Worker to handle auth (via Cloudflare Access) while
+    // still satisfying the container gateway's token validation
+    let wsRequest = request;
+    if (c.env.MOLTBOT_GATEWAY_TOKEN) {
+      const wsUrl = new URL(request.url);
+      // Always set the token (overwrite any client-provided token for security)
+      wsUrl.searchParams.set('token', c.env.MOLTBOT_GATEWAY_TOKEN);
+      wsRequest = new Request(wsUrl.toString(), request);
+      console.log('[WS] Injected gateway token into WebSocket URL');
+    }
+
     // Get WebSocket connection to the container
-    const containerResponse = await sandbox.wsConnect(request, MOLTBOT_PORT);
+    const containerResponse = await sandbox.wsConnect(wsRequest, MOLTBOT_PORT);
     console.log('[WS] wsConnect response status:', containerResponse.status);
     
     // Get the container-side WebSocket
