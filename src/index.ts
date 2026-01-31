@@ -268,16 +268,29 @@ app.all('*', async (c) => {
     console.log('[WS] URL:', request.url);
     console.log('[WS] Search params:', url.search);
 
-    // Inject the gateway token into the WebSocket URL if configured
+    // Inject the gateway token into the WebSocket request if configured
     // This allows the Worker to handle auth (via Cloudflare Access) while
     // still satisfying the container gateway's token validation
+    // We inject the token in multiple ways since the SDK may not preserve all of them:
+    // 1. URL query param (standard approach)
+    // 2. Authorization header (common for APIs)
+    // 3. X-Gateway-Token header (custom fallback)
     let wsRequest = request;
     if (c.env.MOLTBOT_GATEWAY_TOKEN) {
       const wsUrl = new URL(request.url);
       // Always set the token (overwrite any client-provided token for security)
       wsUrl.searchParams.set('token', c.env.MOLTBOT_GATEWAY_TOKEN);
-      wsRequest = new Request(wsUrl.toString(), request);
-      console.log('[WS] Injected gateway token into WebSocket URL');
+
+      // Copy headers and add token in multiple formats
+      const headers = new Headers(request.headers);
+      headers.set('Authorization', `Bearer ${c.env.MOLTBOT_GATEWAY_TOKEN}`);
+      headers.set('X-Gateway-Token', c.env.MOLTBOT_GATEWAY_TOKEN);
+
+      wsRequest = new Request(wsUrl.toString(), {
+        method: request.method,
+        headers,
+      });
+      console.log('[WS] Injected gateway token into WebSocket request (URL + headers)');
     }
 
     // Get WebSocket connection to the container
