@@ -168,11 +168,16 @@ if (config.models?.providers?.anthropic?.models) {
 // Gateway configuration
 config.gateway.port = 18789;
 config.gateway.mode = 'local';
-config.gateway.trustedProxies = ['10.1.0.0'];
+// Trust connections from all internal IPs since the container is only accessible through the Worker
+// The Worker handles authentication via Cloudflare Access, so no additional auth needed at gateway level
+config.gateway.trustedProxies = ['10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16', '127.0.0.0/8'];
 
-// Set gateway token if provided
+// Configure auth to trust WebSocket connections from proxied requests
+// This is safe because the Worker validates auth before proxying
+config.gateway.auth = config.gateway.auth || {};
+config.gateway.auth.trustProxiedWebSocket = true;
+// Store the token for reference but don't enforce it for trusted proxy connections
 if (process.env.CLAWDBOT_GATEWAY_TOKEN) {
-    config.gateway.auth = config.gateway.auth || {};
     config.gateway.auth.token = process.env.CLAWDBOT_GATEWAY_TOKEN;
 }
 
@@ -285,10 +290,9 @@ rm -f "$CONFIG_DIR/gateway.lock" 2>/dev/null || true
 BIND_MODE="lan"
 echo "Dev mode: ${CLAWDBOT_DEV_MODE:-false}, Bind mode: $BIND_MODE"
 
-if [ -n "$CLAWDBOT_GATEWAY_TOKEN" ]; then
-    echo "Starting gateway with token auth..."
-    exec clawdbot gateway --port 18789 --verbose --allow-unconfigured --bind "$BIND_MODE" --token "$CLAWDBOT_GATEWAY_TOKEN"
-else
-    echo "Starting gateway with device pairing (no token)..."
-    exec clawdbot gateway --port 18789 --verbose --allow-unconfigured --bind "$BIND_MODE"
-fi
+# Note: We don't pass --token via CLI because the Cloudflare Sandbox SDK doesn't preserve
+# URL query params or headers when proxying WebSocket connections. Instead, auth is handled
+# at the Worker level via Cloudflare Access. The token is still set in the config file
+# for any direct API access that might need it.
+echo "Starting gateway (auth handled by Worker via Cloudflare Access)..."
+exec clawdbot gateway --port 18789 --verbose --allow-unconfigured --bind "$BIND_MODE"
